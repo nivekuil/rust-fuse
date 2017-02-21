@@ -15,7 +15,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
 use libc::{c_int, S_IFIFO, S_IFCHR, S_IFBLK, S_IFDIR, S_IFREG, S_IFLNK, S_IFSOCK, EIO};
-use time::Timespec;
+use std::time::Duration;
 use fuse::{fuse_attr, fuse_kstatfs, fuse_file_lock, fuse_entry_out, fuse_attr_out};
 use fuse::{fuse_open_out, fuse_write_out, fuse_statfs_out, fuse_lk_out, fuse_bmap_out};
 use fuse::fuse_getxattr_out;
@@ -78,14 +78,14 @@ fn fuse_attr_from_attr (attr: &FileAttr) -> fuse_attr {
         ino: attr.ino,
         size: attr.size,
         blocks: attr.blocks,
-        atime: attr.atime.sec,
-        mtime: attr.mtime.sec,
-        ctime: attr.ctime.sec,
-        crtime: attr.crtime.sec,
-        atimensec: attr.atime.nsec,
-        mtimensec: attr.mtime.nsec,
-        ctimensec: attr.ctime.nsec,
-        crtimensec: attr.crtime.nsec,
+        atime: attr.atime.as_secs(),
+        mtime: attr.mtime.as_secs(),
+        ctime: attr.ctime.as_secs(),
+        crtime: attr.crtime.as_secs(),
+        atimensec: attr.atime.subsec_nanos(),
+        mtimensec: attr.mtime.subsec_nanos(),
+        ctimensec: attr.ctime.subsec_nanos(),
+        crtimensec: attr.crtime.subsec_nanos(),
         mode: mode_from_kind_and_perm(attr.kind, attr.perm),
         nlink: attr.nlink,
         uid: attr.uid,
@@ -102,12 +102,12 @@ fn fuse_attr_from_attr (attr: &FileAttr) -> fuse_attr {
         ino: attr.ino,
         size: attr.size,
         blocks: attr.blocks,
-        atime: attr.atime.sec,
-        mtime: attr.mtime.sec,
-        ctime: attr.ctime.sec,
-        atimensec: attr.atime.nsec,
-        mtimensec: attr.mtime.nsec,
-        ctimensec: attr.ctime.nsec,
+        atime: attr.atime.as_secs(),
+        mtime: attr.mtime.as_secs(),
+        ctime: attr.ctime.as_secs(),
+        atimensec: attr.atime.subsec_nanos(),
+        mtimensec: attr.mtime.subsec_nanos(),
+        ctimensec: attr.ctime.subsec_nanos(),
         mode: mode_from_kind_and_perm(attr.kind, attr.perm),
         nlink: attr.nlink,
         uid: attr.uid,
@@ -246,14 +246,14 @@ impl Reply for ReplyEntry {
 
 impl ReplyEntry {
     /// Reply to a request with the given entry
-    pub fn entry (self, ttl: &Timespec, attr: &FileAttr, generation: u64) {
+    pub fn entry (self, ttl: &Duration, attr: &FileAttr, generation: u64) {
         self.reply.ok(&fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
-            entry_valid: ttl.sec,
-            attr_valid: ttl.sec,
-            entry_valid_nsec: ttl.nsec,
-            attr_valid_nsec: ttl.nsec,
+            entry_valid: ttl.as_secs(),
+            attr_valid: ttl.as_secs(),
+            entry_valid_nsec: ttl.subsec_nanos(),
+            attr_valid_nsec: ttl.subsec_nanos(),
             attr: fuse_attr_from_attr(attr),
         });
     }
@@ -280,10 +280,10 @@ impl Reply for ReplyAttr {
 
 impl ReplyAttr {
     /// Reply to a request with the given attribute
-    pub fn attr (self, ttl: &Timespec, attr: &FileAttr) {
+    pub fn attr (self, ttl: &Duration, attr: &FileAttr) {
         self.reply.ok(&fuse_attr_out {
-            attr_valid: ttl.sec,
-            attr_valid_nsec: ttl.nsec,
+            attr_valid: ttl.as_secs(),
+            attr_valid_nsec: ttl.subsec_nanos(),
             dummy: 0,
             attr: fuse_attr_from_attr(attr),
         });
@@ -314,12 +314,12 @@ impl Reply for ReplyXTimes {
 #[cfg(target_os = "macos")]
 impl ReplyXTimes {
     /// Reply to a request with the given xtimes
-    pub fn xtimes (self, bkuptime: Timespec, crtime: Timespec) {
+    pub fn xtimes (self, bkuptime: Duration, crtime: Duration) {
         self.reply.ok(&fuse_getxtimes_out {
-            bkuptime: bkuptime.sec,
-            crtime: crtime.sec,
-            bkuptimensec: bkuptime.nsec,
-            crtimensec: crtime.nsec,
+            bkuptime: bkuptime.as_secs(),
+            crtime: crtime.as_secs(),
+            bkuptimensec: bkuptime.subsec_nanos(),
+            crtimensec: crtime.subsec_nanos(),
         });
     }
 
@@ -443,14 +443,14 @@ impl Reply for ReplyCreate {
 
 impl ReplyCreate {
     /// Reply to a request with the given entry
-    pub fn created (self, ttl: &Timespec, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
+    pub fn created (self, ttl: &Duration, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
         self.reply.ok(&(fuse_entry_out {
             nodeid: attr.ino,
             generation: generation,
-            entry_valid: ttl.sec,
-            attr_valid: ttl.sec,
-            entry_valid_nsec: ttl.nsec,
-            attr_valid_nsec: ttl.nsec,
+            entry_valid: ttl.as_secs(),
+            attr_valid: ttl.as_secs(),
+            entry_valid_nsec: ttl.subsec_nanos(),
+            attr_valid_nsec: ttl.subsec_nanos(),
             attr: fuse_attr_from_attr(attr),
         }, fuse_open_out {
             fh: fh,
@@ -619,7 +619,7 @@ impl ReplyXattr {
 mod test {
     use std::thread;
     use std::sync::mpsc::{channel, Sender};
-    use time::Timespec;
+    use std::time::Duration;
     use super::as_bytes;
     use super::{Reply, ReplyRaw, ReplyEmpty, ReplyData, ReplyEntry, ReplyAttr, ReplyOpen};
     use super::{ReplyWrite, ReplyStatfs, ReplyCreate, ReplyLock, ReplyBmap, ReplyDirectory};
@@ -752,7 +752,7 @@ mod test {
             }
         };
         let reply: ReplyEntry = Reply::new(0xdeadbeef, sender);
-        let time = Timespec::new(0x1234, 0x5678);
+        let time = Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.entry(&time, &attr, 0xaa);
@@ -785,7 +785,7 @@ mod test {
             }
         };
         let reply: ReplyAttr = Reply::new(0xdeadbeef, sender);
-        let time = Timespec::new(0x1234, 0x5678);
+        let time = Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.attr(&time, &attr);
@@ -802,7 +802,7 @@ mod test {
             ]
         };
         let reply: ReplyXTimes = Reply::new(0xdeadbeef, sender);
-        let time = Timespec::new(0x1234, 0x5678);
+        let time = Duration::new(0x1234, 0x5678);
         reply.xtimes(time, time);
     }
 
@@ -879,7 +879,7 @@ mod test {
             }
         };
         let reply: ReplyCreate = Reply::new(0xdeadbeef, sender);
-        let time = Timespec::new(0x1234, 0x5678);
+        let time = Duration::new(0x1234, 0x5678);
         let attr = FileAttr { ino: 0x11, size: 0x22, blocks: 0x33, atime: time, mtime: time, ctime: time, crtime: time,
             kind: FileType::RegularFile, perm: 0o644, nlink: 0x55, uid: 0x66, gid: 0x77, rdev: 0x88, flags: 0x99 };
         reply.created(&time, &attr, 0xaa, 0xbb, 0xcc);
